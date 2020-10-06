@@ -294,3 +294,70 @@
     - /tmp/myfs.img
     - /tmp/myfs
     when: ansible_system in ('Linux')
+- name: Test NFS remount different source functionality
+  when: ansible_os_family == 'RedHat'
+  block:
+  - name: install nfs utils
+    yum:
+      name: nfs-utils
+      state: present
+  - name: make nfs share dir1
+    file:
+      state: directory
+      path: /var/nfsshare1
+  - name: make nfs share dir2
+    file:
+      state: directory
+      path: /var/nfsshare2
+  - name: make nfs mount point
+    file:
+      state: directory
+      path: /mnt/nfsshare
+  - name: setup nfs export for dir1 to localhost
+    lineinfile:
+      path: /etc/exports
+      line: '/var/nfsshare1    localhost(rw,sync,no_root_squash,no_all_squash)'
+  - name: setup nfs export for dir1 to localhost
+    lineinfile:
+      path: /etc/exports
+      line: '/var/nfsshare2    localhost(rw,sync,no_root_squash,no_all_squash)'
+  - name: enable services
+    service:
+      name: "{{ item }}"
+      state: started
+      enabled: yes
+    loop:
+      - 'rpcbind'
+      - 'nfs-server'
+      - 'nfs-lock'
+      - 'nfs-idmap'
+  - name: mount share dir1
+    mount:
+      path: "/mnt/nfs"
+      src: "localhost:/var/nfsshare1"
+      fstype: nfs
+      state: mounted
+  - name: check that this worked 1
+    shell: 'findmnt | grep /var/nfsshare1'
+    register: findmnt_out
+  - name: verify this did work 1 
+    assert:
+      that:
+        - "'/var/nfsshare1' in findmnt_out.stdout"
+  - name: mount share dir2
+    mount:
+      path: "/mnt/nfs"
+      src: "localhost:/var/nfsshare2"
+      fstype: nfs
+      state: mounted
+  - name: check that this worked 2
+    shell: 'findmnt | grep /var/nfsshare2'
+    register: findmnt_out
+  - name: verify this did work 2
+    assert:
+      that:
+        - "'/var/nfsshare2' in findmnt_out.stdout"
+
+
+
+

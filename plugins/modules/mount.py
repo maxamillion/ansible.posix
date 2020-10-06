@@ -460,10 +460,23 @@ def remount(module, args):
         else:
             cmd += ['-u']
     else:
-        if module.params['state'] == 'remounted' and args['opts'] != 'defaults':
-            cmd += ['-o', 'remount,' + args['opts']]
+        if 'nfs' in args['fstype']:
+            # Linux mount with NFS doesn't handle remounting a different source
+            # https://github.com/ansible-collections/ansible.posix/issues/85
+            res, msg = umount(module, args['name'])
+            if res:
+                module.fail_json(
+                    msg="Error unmounting %s: %s" % (args['name'], msg))
+
+            res, msg = mount(module, args)
+            if res:
+                module.fail_json(
+                    msg="Error mounting %s: %s" % (args['name'], msg))
         else:
-            cmd += ['-o', 'remount']
+            if module.params['state'] == 'remounted' and args['opts'] != 'defaults':
+                cmd += ['-o', 'remount,' + args['opts']]
+            else:
+                cmd += ['-o', 'remount']
 
     if platform.system().lower() == 'openbsd':
         # Use module.params['fstab'] here as args['fstab'] has been set to the
