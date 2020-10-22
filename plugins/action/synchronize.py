@@ -59,8 +59,8 @@ class ActionModule(ActionBase):
         if path.startswith('rsync://'):
             return path
 
-        # If using docker or buildah, do not add user information
-        if self._remote_transport not in ['docker', 'community.general.docker', 'buildah', 'containers.podman.buildah'] and user:
+        # If using docker, podman, or buildah, do not add user information
+        if self._remote_transport not in self.container_transports and user:
             user_prefix = '%s@' % (user, )
 
         if self._host_is_ipv6_address(host):
@@ -169,6 +169,12 @@ class ActionModule(ActionBase):
         # Store remote connection type
         self._remote_transport = self._connection.transport
 
+        # Set of connection transports we can use
+        self.container_transports = [
+            'docker', 'community.general.docker', 'buildah', 'podman',
+            'containers.podman.buildah', 'containers.podman.podman',
+        ]
+
         # Handle docker connection options
         if self._remote_transport in ['docker', 'community.general.docker']:
             self._docker_cmd = self._connection.docker_cmd
@@ -192,11 +198,11 @@ class ActionModule(ActionBase):
         # ssh paramiko docker buildah and local are fully supported transports.  Anything
         # else only works with delegate_to
         if delegate_to is None and self._connection.transport not in \
-                ('ssh', 'paramiko', 'local', 'docker', 'community.general.docker', 'buildah', 'containers.podman.buildah'):
+                ['ssh', 'paramiko', 'local'] + self.container_transports:
             result['failed'] = True
             result['msg'] = (
                 "synchronize uses rsync to function. rsync needs to connect to the remote "
-                "host via ssh, docker client or a direct filesystem "
+                "host via ssh, docker, podman, or buildah connection plugins or a direct filesystem "
                 "copy. This remote host is being accessed via %s instead "
                 "so it cannot work." % self._connection.transport)
             return result
@@ -389,7 +395,7 @@ class ActionModule(ActionBase):
 
         # If launching synchronize against docker container
         # use rsync_opts to support container to override rsh options
-        if self._remote_transport in ['docker', 'community.general.docker', 'buildah', 'containers.podman.buildah'] and not use_delegate:
+        if self._remote_transport in self.container_transports and not use_delegate:
             # Replicate what we do in the module argumentspec handling for lists
             if not isinstance(_tmp_args.get('rsync_opts'), MutableSequence):
                 tmp_rsync_opts = _tmp_args.get('rsync_opts', [])
@@ -411,6 +417,8 @@ class ActionModule(ActionBase):
                     _tmp_args['rsync_opts'].append("--rsh=%s exec -i" % self._docker_cmd)
             elif self._remote_transport in ['buildah', 'containers.podman.buildah']:
                 _tmp_args['rsync_opts'].append("--rsh=buildah run --")
+            elif self._remote_transport in ['podman', 'containers.podman.podman']:
+                _tmp_args['rsync_opts'].append("--rsh=podman exec -u %s -i" % user)
 
         # run the module and store the result
         result.update(self._execute_module('ansible.posix.synchronize', module_args=_tmp_args, task_vars=task_vars))
